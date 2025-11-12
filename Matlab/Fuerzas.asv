@@ -1,0 +1,100 @@
+clear all; close all; clc;
+Wcp = 5.3e-3*9.81; %Peso contrapeso
+Wb = 28.7e-3*9.81; % Peso brazo
+Wm = (3.5e-3+2.4e-3)*9.81; %Peso motor
+k = 
+d1 = 130.5e-3;
+d2 = 50e-3;
+e = 13.28e-3;
+I = 1.3636e-4;
+
+angulos = linspace(0,-85,18)';
+angulos = deg2rad(90 + angulos);
+
+pwm = [871,868,862,849,826,800,772,737,700,663,618,570,510,453,380,305,212,-100]';
+
+theta = angulos;
+Fm = -(sin(theta)*(Wcp*d2-d1*Wm-e*Wb))/d1;
+
+
+voltaje = pwm*(4.4235/1023);
+
+
+angulos = rad2deg(angulos);
+T = table(pwm, voltaje, angulos, Fm*1000, 'VariableNames',{'PWM','Voltaje (V)', 'Angulo (°)', 'Fm (mN)'});
+
+% Mostrar tabla
+disp(T);
+
+
+
+figure;
+uitable('Data', T{:,:}, ...
+        'ColumnName', T.Properties.VariableNames, ...
+        'Units', 'normalized', ...
+        'Position', [0.1 0.1 0.8 0.8]);
+
+figure
+
+plot(voltaje,Fm)
+xlabel('Voltaje (V)')
+ylabel('Fuerza (N)')
+
+%%
+
+syms theta(t)
+
+
+% --- Parámetros ---
+I;    % [kg·m²]
+mu = 7.406734e-04% N·m·s/rad     % [N·m·s/rad]
+mu = 2e-04
+k =(Wcp*d2-d1*Wm-e*Wb);       % [N·m/rad]
+
+% --- Ecuación diferencial ---
+eqn = I*diff(theta,t,2) + mu*diff(theta,t) - k*theta == 0;
+
+% --- Condiciones iniciales ---
+Dtheta = diff(theta,t);
+conds = [theta(0) == deg2rad(17), Dtheta(0) == 0];
+
+% --- Resolver ---
+sol = dsolve(eqn, conds);
+theta_t = simplify(sol);
+disp('θ(t) =');
+
+% --- Convertir a función numérica ---
+theta_fun = matlabFunction(theta_t);
+
+% --- Graficar ---
+t = linspace(0,10,1000);
+plot(t, theta_fun(t),'LineWidth',2);
+xlabel('Tiempo [s]');
+ylabel('\theta(t)');
+title('Respuesta \theta(t)');
+grid on;
+
+% --- Frecuencias ---
+wn = sqrt(k/I);
+wd = sqrt(wn^2 - (mu/(2*I))^2);
+fprintf('Frecuencia natural wn = %.3f rad/s\n', wn);
+fprintf('Frecuencia amortiguada wd = %.3f rad/s\n', wd);
+
+
+vpa(theta_t,4)
+
+
+%%
+
+wn = 8.3709;
+%mu = 2*I*sqrt(wn^2 - wd^2)
+
+
+
+angulo_exp =[17.14,7.56,-9.93,-3.95,9.41,3.52,-6.59,-1.23,5.81,1.15,-3.33,0,2.64,0.36,-0.61,0.27];
+angulo_exp = deg2rad(angulo_exp);
+tiempo_exp = linspace(0,length(angulo_exp)*0.2,16);
+hold on;
+plot(tiempo_exp,angulo_exp);
+
+
