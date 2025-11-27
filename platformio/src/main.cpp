@@ -17,9 +17,11 @@
 #define SMC 1
 #define MRAC 2
 #define HINF 3
+#define PI_D 4  //PI+D
 
 // ---------------- PROTOTIPOS -------------------
 float computePID(float angle);
+float computePI_D(float angle, float wz);
 void calibrateGyroZ(int samples);
 float getGyroZ();
 
@@ -33,7 +35,7 @@ sensors_event_t accel, gyro, temp;
 float gyroZ_bias = 0.0;
 
 // ----------------- Controlador -----------------
-int controlMode = HINF;
+int controlMode = PI_D;
 
 // ---------------- PWM ----------------
 const int PWM_CHANNEL = 1;
@@ -137,6 +139,9 @@ void loop()
         case MRAC:
             pidOut = computePID(angle);
             break;
+        case PI_D:
+            pidOut = computePI_D(angle, wz);
+            break;
         default:
             pidOut = 0;
             break;
@@ -217,6 +222,29 @@ float computePID(float angle)
 
     return out;
 }
+
+
+float computePI_D(float angle, float wz)
+{
+    unsigned long now = millis();
+    float dt = (now - tPID_prev) / 1000.0;
+    if (dt <= 0) dt = 0.001;
+
+    tPID_prev = now;
+
+    float error = setpoint - angle;
+
+    // --- Integral con anti-windup ---
+    integral += error * dt;
+    if (integral > 200) integral = 200;
+    if (integral < -200) integral = -200;
+
+    // --- PI + D (gyro) ---
+    float out = Kp * error + Ki * integral - Kd * wz;
+
+    return out;
+}
+
 
 void calibrateGyroZ(int samples = 500)
 {
