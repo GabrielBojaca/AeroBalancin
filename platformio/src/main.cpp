@@ -248,7 +248,7 @@ float computePI_D(float angle, float wz)
 
 void calibrateGyroZ(int samples = 500)
 {
-    Serial.println("🔧 Calibrando Gyro Z...");
+    Serial.println("Calibrando Gyro Z...");
     float sum = 0;
 
     for (int i = 0; i < samples; i++)
