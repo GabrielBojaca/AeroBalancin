@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <AS5600.h>
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
 
 // ---------------- PINES ----------------
 #define PWM_PIN   18
@@ -10,8 +12,25 @@
 #define BTN_DOWN  19   // Bajar referencia
 #define BTN_UP    23   // Subir referencia
 
-// ---------------- OBJETO ENCODER ----------------
+
+// ----------------- MODO DE CONTROL --------------
+#define PID 0
+#define SMC 1 
+#define MRAC 2
+#define HINF 3
+
+
+
+
+// ---------------- OBJETO ENCODER IMU ----------------
 AS5600 encoder;
+Adafruit_MPU6050 mpu;
+sensors_event_t accel, gyro, temp;
+
+
+// ----------------- Controlador -----------------
+int controlMode = HINF;
+
 
 // ---------------- PWM ----------------
 const int PWM_CHANNEL = 1;
@@ -65,18 +84,35 @@ float computePID(float angle) {
 
 
 void setup() {
-    Serial.begin(115200);
+  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RES);
+  ledcAttachPin(PWM_PIN, PWM_CHANNEL);
+  ledcWrite(PWM_CHANNEL, 0);
 
-    ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RES);
-    ledcAttachPin(PWM_PIN, PWM_CHANNEL);
+  Serial.begin(115200);
+  delay(2000);
 
-    Wire.begin(SDA_PIN, SCL_PIN);
-    encoder.begin();
+  // --- I2C ---
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setTimeout(50);
+  Wire.setClock(400000);
 
-    pinMode(BTN_DOWN, INPUT_PULLUP);
-    pinMode(BTN_UP, INPUT_PULLUP);
+  // --- AS5600 ---
+  if (!encoder.begin()) Serial.println("❌ No se detecta AS5600");
+  else Serial.println("✅ AS5600 detectado");
 
-    delay(500);
+  // --- MPU6050 ---
+  if (!mpu.begin(0x68, &Wire)) {
+    Serial.println("❌ No se detecta el MPU6050");
+  } else {
+    Serial.println("✅ MPU6050 detectado correctamente");
+  }
+
+  // Configuración del MPU6050
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+  Serial.println("✅ Sistema listo");
 }
 
 
@@ -98,23 +134,51 @@ void loop() {
         delay(150); 
     }
 
+    // --- Lectura encoder ---
+
     uint16_t raw = encoder.readAngle();
     float angle = 45 - ((raw * 360.0) / 4096.0);
 
-    float pidOut = computePID(angle);
+    // --- Lectura giroscopio ---
 
+    
+    mpu.getEvent(&accel, &gyro, &temp);
+
+
+    float pidOut = 0;
+    /*
+    switch (controlMode)
+    {
+    case PID :
+        pidOut = computePID(angle);
+        break;
+    case HINF :
+        pidOut = computePID(angle);
+        break;
+    case SMC :
+        pidOut = computePID(angle);
+        break;
+    case MRAC :
+        pidOut = computePID(angle);
+        break;
+    default:
+        pidOut = 0;
+        break;
+    }*/
+
+     pidOut = 0; //computePID(angle);
+    
     int pwm = (int)pidOut;
 
-
     Serial.print(" Ref:");
-    //Serial.print(",");
     Serial.print(setpoint);
     Serial.print("  Ang:");
-    Serial.print(",");
     Serial.print(angle);
     Serial.print("  PWM:");
-    Serial.print(",");
-    Serial.println(pwm);
+    Serial.print(pwm);
+    Serial.print(" GyroZ:");
+    Serial.println(gyro.gyro.z, 2);
+
 
     if (pwm < 0) pwm = 0;
     if (pwm > 1023) pwm = 1023;
