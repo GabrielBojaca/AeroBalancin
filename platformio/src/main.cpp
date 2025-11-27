@@ -5,56 +5,52 @@
 #include <Adafruit_Sensor.h>
 
 // ---------------- PINES ----------------
-#define PWM_PIN   18
-#define SDA_PIN   21
-#define SCL_PIN   22
+#define PWM_PIN 18
+#define SDA_PIN 21
+#define SCL_PIN 22
 
-#define BTN_DOWN  19   // Bajar referencia
-#define BTN_UP    23   // Subir referencia
-
+#define BTN_DOWN 19 // Bajar referencia
+#define BTN_UP 23   // Subir referencia
 
 // ----------------- MODO DE CONTROL --------------
 #define PID 0
-#define SMC 1 
+#define SMC 1
 #define MRAC 2
 #define HINF 3
-
-
-
 
 // ---------------- OBJETO ENCODER IMU ----------------
 AS5600 encoder;
 Adafruit_MPU6050 mpu;
 sensors_event_t accel, gyro, temp;
 
-
 // ----------------- Controlador -----------------
 int controlMode = HINF;
 
-
 // ---------------- PWM ----------------
 const int PWM_CHANNEL = 1;
-const int PWM_FREQ    = 20000;
-const int PWM_RES     = 10;
+const int PWM_FREQ = 20000;
+const int PWM_RES = 10;
 
 // ---------------- PID ----------------
 float Kp = 7.80e-1;
 float Ki = 3.9979;
 float Kd = 6.214e-2;
 
-float setpoint = -10.0;        
-const float step_ref = 5.0;    
+float setpoint = -10.0;
+const float step_ref = 5.0;
 
 float errorPrev = 0.0;
 float integral = 0.0;
 unsigned long tPID_prev = 0;
 
 // -------- PID --------
-float computePID(float angle) {
+float computePID(float angle)
+{
 
     unsigned long now = millis();
     float dt = (now - tPID_prev) / 1000.0;
-    if (dt <= 0) dt = 0.001;
+    if (dt <= 0)
+        dt = 0.001;
 
     tPID_prev = now;
 
@@ -62,76 +58,89 @@ float computePID(float angle) {
 
     // Integral con anti-windup
     integral += error * dt;
-    if (integral > 200) integral = 200;
-    if (integral < -200) integral = -200;
+    if (integral > 200)
+        integral = 200;
+    if (integral < -200)
+        integral = -200;
 
     float derivative = (error - errorPrev) / dt;
     errorPrev = error;
 
     float out = Kp * error + Ki * integral + Kd * derivative;
 
-    //Serial.print("0 1023 Kpu: ");
-    //Serial.print("1023,0,");
-    //Serial.print(error*Kp);
-    //Serial.print(" Kiu: ");
-    //Serial.print(",");
-    //Serial.print(integral*Ki);
-    //Serial.print(",");
-    //Serial.print(" Kdu: ");
-    //Serial.print(Kd * derivative);
+    // Serial.print("0 1023 Kpu: ");
+    // Serial.print("1023,0,");
+    // Serial.print(error*Kp);
+    // Serial.print(" Kiu: ");
+    // Serial.print(",");
+    // Serial.print(integral*Ki);
+    // Serial.print(",");
+    // Serial.print(" Kdu: ");
+    // Serial.print(Kd * derivative);
     return out;
 }
 
+void setup()
+{
 
-void setup() {
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RES);
-  ledcAttachPin(PWM_PIN, PWM_CHANNEL);
-  ledcWrite(PWM_CHANNEL, 0);
+    pinMode(BTN_DOWN, INPUT_PULLUP);
+    pinMode(BTN_UP, INPUT_PULLUP);
+    ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RES);
+    ledcAttachPin(PWM_PIN, PWM_CHANNEL);
+    ledcWrite(PWM_CHANNEL, 0);
 
-  Serial.begin(115200);
-  delay(2000);
+    Serial.begin(115200);
+    delay(2000);
 
-  // --- I2C ---
-  Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setTimeout(50);
-  Wire.setClock(400000);
+    // --- I2C ---
+    Wire.begin(SDA_PIN, SCL_PIN);
+    Wire.setTimeout(50);
+    Wire.setClock(400000);
 
-  // --- AS5600 ---
-  if (!encoder.begin()) Serial.println("❌ No se detecta AS5600");
-  else Serial.println("✅ AS5600 detectado");
+    // --- AS5600 ---
+    if (!encoder.begin())
+        Serial.println("❌ No se detecta AS5600");
+    else
+        Serial.println("✅ AS5600 detectado");
 
-  // --- MPU6050 ---
-  if (!mpu.begin(0x68, &Wire)) {
-    Serial.println("❌ No se detecta el MPU6050");
-  } else {
-    Serial.println("✅ MPU6050 detectado correctamente");
-  }
-
-  // Configuración del MPU6050
-  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
-  mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
-  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-
-  Serial.println("✅ Sistema listo");
-}
-
-
-
-void loop() {
-
-    bool down = digitalRead(BTN_DOWN) == LOW;
-    bool up   = digitalRead(BTN_UP)   == LOW;
-
-    if (down) {
-        setpoint -= step_ref;
-        if (setpoint < -90) setpoint = -90;
-        delay(150); 
+    // --- MPU6050 ---
+    if (!mpu.begin(0x68, &Wire))
+    {
+        Serial.println("❌ No se detecta el MPU6050");
+    }
+    else
+    {
+        Serial.println("✅ MPU6050 detectado correctamente");
     }
 
-    if (up) {
+    // Configuración del MPU6050
+    mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+    mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
+    mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+
+    Serial.println("✅ Sistema listo");
+}
+
+void loop()
+{
+
+    bool down = digitalRead(BTN_DOWN) == LOW;
+    bool up = digitalRead(BTN_UP) == LOW;
+
+    if (down)
+    {
+        setpoint -= step_ref;
+        if (setpoint < -90)
+            setpoint = -90;
+        delay(150);
+    }
+
+    if (up)
+    {
         setpoint += step_ref;
-        if (setpoint > 40) setpoint = 40;
-        delay(150); 
+        if (setpoint > 40)
+            setpoint = 40;
+        delay(150);
     }
 
     // --- Lectura encoder ---
@@ -141,9 +150,7 @@ void loop() {
 
     // --- Lectura giroscopio ---
 
-    
     mpu.getEvent(&accel, &gyro, &temp);
-
 
     float pidOut = 0;
     /*
@@ -166,10 +173,11 @@ void loop() {
         break;
     }*/
 
-     pidOut = 0; //computePID(angle);
-    
+    pidOut = 0; // computePID(angle);
+
     int pwm = (int)pidOut;
 
+    Serial.printf("%06lu", millis());
     Serial.print(" Ref:");
     Serial.print(setpoint);
     Serial.print("  Ang:");
@@ -179,12 +187,12 @@ void loop() {
     Serial.print(" GyroZ:");
     Serial.println(gyro.gyro.z, 2);
 
-
-    if (pwm < 0) pwm = 0;
-    if (pwm > 1023) pwm = 1023;
+    if (pwm < 0)
+        pwm = 0;
+    if (pwm > 1023)
+        pwm = 1023;
 
     ledcWrite(PWM_CHANNEL, pwm);
-
 
     delay(10);
 }
