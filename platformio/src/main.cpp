@@ -66,6 +66,9 @@ float c = 0.0063;
 // --- SALIDA ---
 int pwm = 0;
 
+// --- DEBUG ---
+bool graficarArd = true;
+
 // ------------- FRECUENCIA CONTROL MUESTREO ------------
 const unsigned long Ts_us = 10 * 1e3; // 1 ms = 1000 us -> 100ms
 unsigned long lastMicros = 0;
@@ -74,7 +77,7 @@ const unsigned long Ts_buttons_ms = 120; // tiempo de lectura de botones (Ojo es
 unsigned long t_buttons_prev = 0;
 
 float setpoint = 80.0;
-const float step_ref = 5.0;
+const float step_ref = 30.0;
 
 void setup()
 {
@@ -170,16 +173,29 @@ void loop()
             break;
         }
         // int pwm = (int)pidOut;
-
-        Serial.printf("%06lu", millis());
-        Serial.print(" Ref: ");
-        Serial.print(setpoint);
-        Serial.print("  Ang: ");
-        Serial.print(angle);
-        Serial.print("  PWM: ");
-        Serial.print(pwm);
-        Serial.print(" GyroZ: ");
-        Serial.println(wz, 4);
+        if (!graficarArd)
+        {
+            Serial.printf("%06lu", millis());
+            Serial.print(" Ref: ");
+            Serial.print(setpoint);
+            Serial.print("  Ang: ");
+            Serial.print(angle);
+            Serial.print("  PWM: ");
+            Serial.print(pwm);
+            Serial.print(" GyroZ: ");
+            Serial.println(wz, 4);
+        }
+        else
+        {
+            Serial.print("");
+            Serial.print(setpoint);
+            Serial.print(",");
+            Serial.print(angle);
+            Serial.print(",");
+            Serial.print(pwm/10); //escalado /10
+            Serial.print(",0, 180,");
+            Serial.println(wz, 4); //escalado x10
+        }
 
         if (pwm < 0)
             pwm = 0;
@@ -309,20 +325,39 @@ float hinf_control(float ref)
 
     static const float Dd = 0.0f;
 */
+    /*
+        static const BLA::Matrix<4, 4> Ad = {
+            0.9982, -1.365e-25, -2.158e-21, -1.741e-23,
+            0.05162, -6.707e-09, 2.18e-06, -8.511e-07,
+            300.3, -3.88e-05, 0.01261, -0.004924,
+            971.5, 0.004798, -1.559, 0.6089};
+
+        static const BLA::Matrix<4, 1> Bd = {
+            0.01998,
+            -0.007427,
+            -43.18,
+            529.8};
+
+        static const BLA::Matrix<1, 4> Cd = {
+            78.36, 0.02374, -0.2276, -0.007732};
+
+        static const float Dd = 0.0f;
+    */
+
     static const BLA::Matrix<4, 4> Ad = {
-        0.9982, -1.365e-25, -2.158e-21, -1.741e-23,
-        0.05162, -6.707e-09, 2.18e-06, -8.511e-07,
-        300.3, -3.88e-05, 0.01261, -0.004924,
-        971.5, 0.004798, -1.559, 0.6089};
+        0.9991, 0.0, 0.0, 0.0,
+        0.269, -0.0003531, 2.427e-05, -4.32e-06,
+        278.5, -0.3545, 0.02438, -0.004338,
+        1393, 40.99, -2.818, 0.5017};
 
     static const BLA::Matrix<4, 1> Bd = {
-        0.01998,
-        -0.007427,
-        -43.18,
-        529.8};
+        0.03998,
+        -0.03136,
+        -32.21,
+        860.1};
 
     static const BLA::Matrix<1, 4> Cd = {
-        78.36, 0.02374, -0.2276, -0.007732};
+        151, 42.79, -0.5241, -0.01239};
 
     static const float Dd = 0.0f;
 
@@ -343,7 +378,7 @@ float hinf_control(float ref)
 
     float u = (Cd * xk)(0, 0) + Dd * ref;
 
-    return u + 650;
+    return u + 660;
 }
 
 float computePISlow(float angle, float setpoint)
