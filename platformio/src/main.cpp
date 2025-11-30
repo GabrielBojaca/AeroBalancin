@@ -41,6 +41,11 @@ float gyroZ_bias = 0.0;
 
 // ----------------- Controlador -----------------
 int controlMode = HINF;
+int controlModeActual;
+
+bool enableAprox = true;
+bool aproximacion = true;
+unsigned long tAproximacion = 0;
 
 // ---------------- PWM ----------------
 const int PWM_CHANNEL = 1;
@@ -77,7 +82,7 @@ const unsigned long Ts_buttons_ms = 120; // tiempo de lectura de botones (Ojo es
 unsigned long t_buttons_prev = 0;
 
 float setpoint = 80.0;
-const float step_ref = 30.0;
+const float step_ref = 5.0;
 
 void setup()
 {
@@ -98,18 +103,21 @@ void setup()
 
     // --- AS5600 ---
     if (!encoder.begin())
-        Serial.println("No se detecta AS5600");
-    else
-        Serial.println("AS5600 detectado");
+        if (!graficarArd)
+            Serial.println("No se detecta AS5600");
+        else if (!graficarArd)
+            Serial.println("AS5600 detectado");
 
     // --- MPU6050 ---
     if (!mpu.begin(0x68, &Wire))
     {
-        Serial.println("No se detecta el MPU6050");
+        if (!graficarArd)
+            Serial.println("No se detecta el MPU6050");
     }
     else
     {
-        Serial.println("MPU6050 detectado correctamente");
+        if (!graficarArd)
+            Serial.println("MPU6050 detectado correctamente");
     }
 
     // Configuración del MPU6050
@@ -119,7 +127,10 @@ void setup()
 
     calibrateGyroZ(500);
 
-    Serial.println("Sistema listo");
+    if (!graficarArd)
+        Serial.println("Sistema listo");
+    aproximacion = true;
+    tAproximacion = millis();
 }
 
 void loop()
@@ -148,7 +159,24 @@ void loop()
 
         mpu.getEvent(&accel, &gyro, &temp);
 
-        switch (controlMode)
+
+        // --- Rutina aproximación ---
+        if (aproximacion && enableAprox) //enableAprox habilitia o deshabilita el uso de la rutina de aprox.
+        {
+            controlModeActual = PI_SLOW;
+            if (millis() > tAproximacion + 13000)
+            {
+                aproximacion = false;
+            }
+        }
+        else
+        {
+            controlModeActual = controlMode;
+        }
+
+        // --- Modo de control ---
+
+        switch (controlModeActual)
         {
         case PID:
             pwm = computePID(angle);
@@ -192,9 +220,9 @@ void loop()
             Serial.print(",");
             Serial.print(angle);
             Serial.print(",");
-            Serial.print(pwm/10); //escalado /10
+            Serial.print(pwm / 10); // escalado /10
             Serial.print(",0, 180,");
-            Serial.println(wz, 4); //escalado x10
+            Serial.println(wz, 4); // escalado x10
         }
 
         if (pwm < 0)
@@ -217,15 +245,15 @@ void loop()
         if (down)
         {
             setpoint -= step_ref;
-            if (setpoint < -180)
-                setpoint = -180;
+            if (setpoint < -120)
+                setpoint = -120;
         }
 
         if (up)
         {
             setpoint += step_ref;
-            if (setpoint > 180)
-                setpoint = 180;
+            if (setpoint > 120)
+                setpoint = 120;
         }
     }
 }
@@ -283,7 +311,8 @@ float computePI_D(float angle, float wz)
 
 void calibrateGyroZ(int samples = 500)
 {
-    Serial.println("Calibrando Gyro Z...");
+    if (!graficarArd)
+        Serial.println("Calibrando Gyro Z...");
     float sum = 0;
 
     for (int i = 0; i < samples; i++)
@@ -385,8 +414,8 @@ float computePISlow(float angle, float setpoint)
 {
     static float integral = 0.0;
     static unsigned long lastTime = 0;
-    const float Kp = 0.1;
-    const float Ki = 4;
+    const float Kp = 0.0;
+    const float Ki = 1.20;
 
     unsigned long now = millis();
     float dt = (now - lastTime) / 1000.0;
@@ -398,10 +427,10 @@ float computePISlow(float angle, float setpoint)
 
     integral += error * dt;
 
-    if (integral > 300)
-        integral = 300;
-    if (integral < -300)
-        integral = -300;
+    if (integral > 1000)
+        integral = 1000;
+    if (integral < -1000)
+        integral = -1000;
 
     float u = Kp * error + Ki * integral;
 
