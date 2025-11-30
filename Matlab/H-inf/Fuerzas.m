@@ -100,7 +100,7 @@ plot(tiempo_exp,angulo_exp);
 %%
 %%
 %%
-%close all
+close all
 figure;
 
 % Omitir el primer dato

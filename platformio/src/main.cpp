@@ -3,6 +3,9 @@
 #include <AS5600.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+#include <BasicLinearAlgebra.h>
+
+using namespace BLA; // Para LinealAgebra
 
 // ---------------- PINES ----------------
 #define PWM_PIN 18
@@ -17,14 +20,14 @@
 #define SMC 1
 #define MRAC 2
 #define HINF 3
-#define PI_D 4  //PI+D
+#define PI_D 4 // PI+D
 
 // ---------------- PROTOTIPOS -------------------
 float computePID(float angle);
 float computePI_D(float angle, float wz);
 void calibrateGyroZ(int samples);
+float hinf_control(float ref);
 float getGyroZ();
-
 
 // ---------------- OBJETO ENCODER IMU ----------------
 AS5600 encoder;
@@ -35,7 +38,7 @@ sensors_event_t accel, gyro, temp;
 float gyroZ_bias = 0.0;
 
 // ----------------- Controlador -----------------
-int controlMode = PI_D;
+int controlMode = HINF;
 
 // ---------------- PWM ----------------
 const int PWM_CHANNEL = 1;
@@ -52,14 +55,20 @@ float integral = 0.0;
 unsigned long tPID_prev = 0;
 // -------------------------------------
 
+// --- HINF ---
+BLA::Matrix<4, 1> xk = {0, 0, 0, 0};
+float a = 5.2070e-08;
+float b = 2.5241e-05;
+float c = 0.0063;
+
 // ------------- FRECUENCIA CONTROL MUESTREO ------------
-const unsigned long Ts_us = 100 * 1e3; // 1 ms = 1000 us -> 100ms
+const unsigned long Ts_us = 10 * 1e3; // 1 ms = 1000 us -> 100ms
 unsigned long lastMicros = 0;
 
 const unsigned long Ts_buttons_ms = 120; // tiempo de lectura de botones (Ojo está en ms, no us)
 unsigned long t_buttons_prev = 0;
 
-float setpoint = -10.0;
+float setpoint = 80.0;
 const float step_ref = 5.0;
 
 void setup()
@@ -76,7 +85,7 @@ void setup()
 
     // --- I2C ---
     Wire.begin(SDA_PIN, SCL_PIN);
-    Wire.setTimeout(50);
+    Wire.setTimeout(1);
     Wire.setClock(400000);
 
     // --- AS5600 ---
@@ -100,7 +109,7 @@ void setup()
     mpu.setGyroRange(MPU6050_RANGE_2000_DEG);
     mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
 
-    calibrateGyroZ(500); 
+    calibrateGyroZ(500);
 
     Serial.println("Sistema listo");
 }
@@ -116,14 +125,26 @@ void loop()
 
         // --- Lectura encoder ---
         uint16_t raw = encoder.readAngle();
-        float angle = 45 - ((raw * 360.0) / 4096.0);
+        // float angle = 45 - ((raw * 360.0) / 4096.0);
+        //float angle = 138.82 - ((raw * 360.0) / 4096.0);
+        float angle = ((raw * 360.0) / 4096.0); //Singularidad eliminada
+        if (angle <= 180){
+            angle = 138.82-angle;
+        } else{
+            angle = (498.82-angle);
+            //angle = (718.82-angle);
+        }
 
+
+        
         // --- Lectura giroscopio ---
-        float wz = getGyroZ();  // velocidad angular calibrada
+        float wz = getGyroZ(); // velocidad angular calibrada
 
         mpu.getEvent(&accel, &gyro, &temp);
 
         float pidOut = 0;
+        int pwm = 0;
+        float u = 0;
 
         switch (controlMode)
         {
@@ -131,7 +152,7 @@ void loop()
             pidOut = computePID(angle);
             break;
         case HINF:
-            pidOut = computePID(angle);
+            pwm = (int)hinf_control((setpoint - angle)); // DEG_TO_RAD);
             break;
         case SMC:
             pidOut = computePID(angle);
@@ -146,8 +167,7 @@ void loop()
             pidOut = 0;
             break;
         }
-
-        int pwm = (int)pidOut;
+        // int pwm = (int)pidOut;
 
         Serial.printf("%06lu", millis());
         Serial.print(" Ref: ");
@@ -179,21 +199,18 @@ void loop()
         if (down)
         {
             setpoint -= step_ref;
-            if (setpoint < -90)
-                setpoint = -90;
+            if (setpoint < -180)
+                setpoint = -180;
         }
 
         if (up)
         {
             setpoint += step_ref;
-            if (setpoint > 40)
-                setpoint = 40;
+            if (setpoint > 180)
+                setpoint = 180;
         }
     }
 }
-
-
-
 
 // -------- PID --------
 float computePID(float angle)
@@ -223,28 +240,28 @@ float computePID(float angle)
     return out;
 }
 
-
 float computePI_D(float angle, float wz)
 {
     unsigned long now = millis();
     float dt = (now - tPID_prev) / 1000.0;
-    if (dt <= 0) dt = 0.001;
+    if (dt <= 0)
+        dt = 0.001;
 
     tPID_prev = now;
 
     float error = setpoint - angle;
 
-    // --- Integral con anti-windup ---
     integral += error * dt;
-    if (integral > 200) integral = 200;
-    if (integral < -200) integral = -200;
+    if (integral > 200)
+        integral = 200;
+    if (integral < -200)
+        integral = -200;
 
     // --- PI + D (gyro) ---
     float out = Kp * error + Ki * integral - Kd * wz;
 
     return out;
 }
-
 
 void calibrateGyroZ(int samples = 500)
 {
@@ -255,7 +272,7 @@ void calibrateGyroZ(int samples = 500)
     {
         mpu.getEvent(&accel, &gyro, &temp);
         sum += gyro.gyro.z;
-        delay(2);   // 500 muestras son 1 segundo
+        delay(2); // 500 muestras son 1 segundo
     }
 
     gyroZ_bias = sum / samples;
@@ -268,4 +285,46 @@ float getGyroZ()
 {
     mpu.getEvent(&accel, &gyro, &temp);
     return gyro.gyro.z - gyroZ_bias;
+}
+
+float hinf_control(float ref)
+{
+    static const BLA::Matrix<4, 4> Ad = {
+        0.9982, 1.68e-25, -1.348e-21, 3.178e-23,
+        0.04555, -3.879e-09, 1.907e-06, -7.352e-07,
+        395.8, -3.355e-05, 0.0165, -0.006359,
+        1257.0, 0.00347, -1.706, 0.6578};
+
+    static const BLA::Matrix<4, 1> Bd = {
+        0.01998,
+        -0.008256,
+        -71.72,
+        558.2};
+
+    static const BLA::Matrix<1, 4> Cd = {
+        70.92, 0.0159, -0.1519, -0.006245};
+
+    static const float Dd = 0.0f;
+
+    // ---- Control H∞ discreto ----
+    xk = Ad * xk + Bd * ref;
+
+    // Anti overflow
+
+    for (int i = 0; i < 4; i++)
+    {
+        // if (xk(i,0) > 1023) xk(i,0) = 1023;
+        // if (xk(i,0) < -1023) xk(i,0) = -1023;
+        Serial.print(" ");
+        Serial.print(xk(i, 0));
+        Serial.print(" ");
+    }
+
+    float u = (Cd * xk)(0, 0) + Dd * ref;
+
+    // u = (u + 0.009739) / (8.6928e-5);
+    // u = (11503.77) * u + 112.0;
+    // u = (u) / (8.6928e-5);
+
+    return u + 650;
 }
