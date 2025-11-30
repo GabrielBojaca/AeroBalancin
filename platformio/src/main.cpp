@@ -20,7 +20,8 @@ using namespace BLA; // Para LinealAgebra
 #define SMC 1
 #define MRAC 2
 #define HINF 3
-#define PI_D 4 // PI+D
+#define PI_D 4    // PI+D
+#define PI_SLOW 5 // PI+D
 
 // ---------------- PROTOTIPOS -------------------
 float computePID(float angle);
@@ -28,6 +29,7 @@ float computePI_D(float angle, float wz);
 void calibrateGyroZ(int samples);
 float hinf_control(float ref);
 float getGyroZ();
+float computePISlow(float angle, float setpoint);
 
 // ---------------- OBJETO ENCODER IMU ----------------
 AS5600 encoder;
@@ -60,6 +62,9 @@ BLA::Matrix<4, 1> xk = {0, 0, 0, 0};
 float a = 5.2070e-08;
 float b = 2.5241e-05;
 float c = 0.0063;
+
+// --- SALIDA ---
+int pwm = 0;
 
 // ------------- FRECUENCIA CONTROL MUESTREO ------------
 const unsigned long Ts_us = 10 * 1e3; // 1 ms = 1000 us -> 100ms
@@ -125,46 +130,43 @@ void loop()
 
         // --- Lectura encoder ---
         uint16_t raw = encoder.readAngle();
-        // float angle = 45 - ((raw * 360.0) / 4096.0);
-        //float angle = 138.82 - ((raw * 360.0) / 4096.0);
-        float angle = ((raw * 360.0) / 4096.0); //Singularidad eliminada
-        if (angle <= 180){
-            angle = 138.82-angle;
-        } else{
-            angle = (498.82-angle);
-            //angle = (718.82-angle);
+        float angle = ((raw * 360.0) / 4096.0); // Singularidad eliminada
+        if (angle <= 180)
+        {
+            angle = 135.82 - angle;
+        }
+        else
+        {
+            angle = (495.82 - angle);
         }
 
-
-        
         // --- Lectura giroscopio ---
         float wz = getGyroZ(); // velocidad angular calibrada
 
         mpu.getEvent(&accel, &gyro, &temp);
 
-        float pidOut = 0;
-        int pwm = 0;
-        float u = 0;
-
         switch (controlMode)
         {
         case PID:
-            pidOut = computePID(angle);
+            pwm = computePID(angle);
             break;
         case HINF:
-            pwm = (int)hinf_control((setpoint - angle)); // DEG_TO_RAD);
+            pwm = (int)hinf_control((setpoint - angle));
             break;
         case SMC:
-            pidOut = computePID(angle);
+            pwm = computePID(angle);
             break;
         case MRAC:
-            pidOut = computePID(angle);
+            pwm = computePID(angle);
             break;
         case PI_D:
-            pidOut = computePI_D(angle, wz);
+            pwm = computePI_D(angle, wz);
+            break;
+        case PI_SLOW:
+            pwm = computePISlow(angle, setpoint);
             break;
         default:
-            pidOut = 0;
+            pwm = 0;
             break;
         }
         // int pwm = (int)pidOut;
@@ -289,6 +291,7 @@ float getGyroZ()
 
 float hinf_control(float ref)
 {
+    /*
     static const BLA::Matrix<4, 4> Ad = {
         0.9982, 1.68e-25, -1.348e-21, 3.178e-23,
         0.04555, -3.879e-09, 1.907e-06, -7.352e-07,
@@ -305,26 +308,67 @@ float hinf_control(float ref)
         70.92, 0.0159, -0.1519, -0.006245};
 
     static const float Dd = 0.0f;
+*/
+    static const BLA::Matrix<4, 4> Ad = {
+        0.9982, -1.365e-25, -2.158e-21, -1.741e-23,
+        0.05162, -6.707e-09, 2.18e-06, -8.511e-07,
+        300.3, -3.88e-05, 0.01261, -0.004924,
+        971.5, 0.004798, -1.559, 0.6089};
+
+    static const BLA::Matrix<4, 1> Bd = {
+        0.01998,
+        -0.007427,
+        -43.18,
+        529.8};
+
+    static const BLA::Matrix<1, 4> Cd = {
+        78.36, 0.02374, -0.2276, -0.007732};
+
+    static const float Dd = 0.0f;
 
     // ---- Control H∞ discreto ----
     xk = Ad * xk + Bd * ref;
 
     // Anti overflow
-
+    /*
     for (int i = 0; i < 4; i++)
     {
         // if (xk(i,0) > 1023) xk(i,0) = 1023;
         // if (xk(i,0) < -1023) xk(i,0) = -1023;
-        Serial.print(" ");
-        Serial.print(xk(i, 0));
-        Serial.print(" ");
+        //Serial.print(" ");
+        //Serial.print(xk(i, 0));
+        //Serial.print(" ");
     }
+    */
 
     float u = (Cd * xk)(0, 0) + Dd * ref;
 
-    // u = (u + 0.009739) / (8.6928e-5);
-    // u = (11503.77) * u + 112.0;
-    // u = (u) / (8.6928e-5);
-
     return u + 650;
+}
+
+float computePISlow(float angle, float setpoint)
+{
+    static float integral = 0.0;
+    static unsigned long lastTime = 0;
+    const float Kp = 0.1;
+    const float Ki = 4;
+
+    unsigned long now = millis();
+    float dt = (now - lastTime) / 1000.0;
+    if (dt <= 0)
+        dt = 0.001;
+    lastTime = now;
+
+    float error = setpoint - angle;
+
+    integral += error * dt;
+
+    if (integral > 300)
+        integral = 300;
+    if (integral < -300)
+        integral = -300;
+
+    float u = Kp * error + Ki * integral;
+
+    return u;
 }

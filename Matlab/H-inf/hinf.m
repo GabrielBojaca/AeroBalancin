@@ -13,6 +13,8 @@ B = 4e-4;
 mu = B;
 
 
+
+
 % --------------- Modelo Lineal -------------------------
 
 theta0_deg = 80;         % punto de linearización en grados
@@ -51,8 +53,14 @@ P0 = ss(A, Bmat, C, D);
 P0.InputName  = {'fm'};
 P0.OutputName = {'angulo_rad'};
 
+m =   1.2984e-04;
+b =  -0.0231;
+
+
 Ka = 8.6928e-5;
 Kb = -0.009739;
+Ka = m;
+Kb = b;
 scale = 180/pi;
 
 Act = tf(Ka);
@@ -74,17 +82,16 @@ s = tf('s');
 %w_bw = 2*pi*20;            
 w_bw = 2*pi*20;            
 % W1: seguimiento razonable (20–40 dB en DC), atenuando en HF
-%W1 = makeweight(db2mag(40), w_bw, 0.9);  % decibeles en baja frecuencia
-W1 = makeweight(db2mag(30), w_bw, 0.999);  % decibeles en baja frecuencia
+%W1 = makeweight(db2mag(30), w_bw, 0.999);  % decibeles en baja frecuencia
+ W1 = makeweight(db2mag(30), w_bw, 0.999);  % decibeles en baja frecuencia
 
 
 % W2: penaliza esfuerzo según el actuador
-%W2 = tf(1/20);     
-%
-W2 = tf(1/10);                  
+%W2 = tf(1/10);     
+ W2 = tf(1/10);                  
 % W3: ruido de medición: no tan extremo
-%w_pert = 2*pi*10;                     % 50 Hz como antes
-%W3 = makeweight(0.999, w_pert, db2mag(40)); %  dB en alta freq 
+%w_pert = 2*pi*50;                     % 50 Hz como antes
+%W3 = makeweight(0.99, w_pert, db2mag(20)); %  dB en alta freq 
 
 w_pert = 2*pi*50;                     % 50 Hz como antes
 W3 = makeweight(0.99, w_pert, db2mag(20)); %  dB en alta freq 
@@ -119,7 +126,7 @@ end
 
 % Nombrar el controlador
 K.InputName  = {'angle_error'};
-K.OutputName = {'PWM_Control_Action'};
+K.OutputName = {'PWM_{Control-Action}'};
 
 fprintf('\n=== Controlador K diseñado ===\n');
 K;

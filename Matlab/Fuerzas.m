@@ -8,12 +8,30 @@ e = 13.28e-3;
 I = 1.3636e-4;
 k =(Wcp*d2-d1*Wm-e*Wb); 
 
-angulos = linspace(0,-85,18)';
-angulos = deg2rad(90 + angulos);
+%angulos = linspace(0,-85,18)';
+%angulos = deg2rad(90 + angulos);
 
-pwm = [871,868,862,849,826,800,772,737,700,663,618,570,510,453,380,305,212,-100]';
+% Nueva tabla
+%  REF	PWM
+%  10	230
+%  20	350
+%  30	435
+%  40	510
+%  50	575
+%  60	630
+%  70	650
+%  80	680
+%  90	692
 
+
+%pwm = [871,868,862,849,826,800,772,737,700,663,618,570,510,453,380,305,212,-100]';
+pwm = [692,680,650,630,575,510,435,350,230]'; %Ultima calibracion
+
+angulos = linspace(90,10,9)';
+angulos = deg2rad(angulos);
 theta = angulos;
+%
+
 Fm = -(sin(theta)*(Wcp*d2-d1*Wm-e*Wb))/d1;
 
 
