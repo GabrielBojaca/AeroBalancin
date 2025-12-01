@@ -46,6 +46,7 @@ int controlModeActual;
 bool enableAprox = true;
 bool aproximacion = true;
 unsigned long tAproximacion = 0;
+int pwmEq = 0;
 
 // ---------------- PWM ----------------
 const int PWM_CHANNEL = 1;
@@ -159,14 +160,15 @@ void loop()
 
         mpu.getEvent(&accel, &gyro, &temp);
 
-
         // --- Rutina aproximación ---
-        if (aproximacion && enableAprox) //enableAprox habilitia o deshabilita el uso de la rutina de aprox.
+        if (aproximacion && enableAprox) // enableAprox habilitia o deshabilita el uso de la rutina de aprox.
         {
             controlModeActual = PI_SLOW;
-            if (millis() > tAproximacion + 13000)
+            if (millis() > tAproximacion + 10000)
             {
                 aproximacion = false;
+                pwmEq = pwm; // Capturamos el pwm de equilibrio
+                setpoint -= 10;
             }
         }
         else
@@ -407,32 +409,47 @@ float hinf_control(float ref)
 
     float u = (Cd * xk)(0, 0) + Dd * ref;
 
-    return u + 660;
+    if (pwm == 0)
+    {
+        u = u + 660;
+    }
+    else
+    {
+        u = u + pwmEq;
+    }
+
+    return u;
 }
 
 float computePISlow(float angle, float setpoint)
 {
-    static float integral = 0.0;
-    static unsigned long lastTime = 0;
-    const float Kp = 0.0;
-    const float Ki = 1.20;
+    static float integral_aprox = 0.0;
+    static float errorPrev_aprox = 0.0;
+    static unsigned long lastTime_aprox = 0;
 
-    unsigned long now = millis();
-    float dt = (now - lastTime) / 1000.0;
-    if (dt <= 0)
-        dt = 0.001;
-    lastTime = now;
+    const float Kp_aprox = 1.0;
+    const float Ki_aprox = 2; //1.2
+    const float Kd_aprox = 1; // 0.8
 
-    float error = setpoint - angle;
+    unsigned long now_aprox = millis();
+    float dt_aprox = (now_aprox - lastTime_aprox) / 1000.0;
+    if (dt_aprox <= 0)
+        dt_aprox = 0.001;
+    lastTime_aprox = now_aprox;
 
-    integral += error * dt;
+    float error_aprox = setpoint - angle;
 
-    if (integral > 1000)
-        integral = 1000;
-    if (integral < -1000)
-        integral = -1000;
+    integral_aprox += error_aprox * dt_aprox;
 
-    float u = Kp * error + Ki * integral;
+    if (integral_aprox > 1000)
+        integral_aprox = 1000;
+    if (integral_aprox < -1000)
+        integral_aprox = -1000;
 
-    return u;
+    float derivative_aprox = (error_aprox - errorPrev_aprox) / dt_aprox;
+    errorPrev_aprox = error_aprox;
+
+    float u_aprox = Kp_aprox * error_aprox + Ki_aprox * integral_aprox + Kd_aprox * derivative_aprox;
+
+    return u_aprox;
 }
