@@ -22,6 +22,7 @@ using namespace BLA; // Para LinealAgebra
 #define HINF 3
 #define PI_D 4    // PI+D
 #define PI_SLOW 5 // PI+D
+#define OFF_CONTROL 80
 
 // ---------------- PROTOTIPOS -------------------
 float computePID(float angle);
@@ -29,7 +30,8 @@ float computePI_D(float angle, float wz);
 void calibrateGyroZ(int samples);
 float hinf_control(float ref);
 float getGyroZ();
-float computePISlow(float angle, float setpoint);
+float computePISlow(float angle, float setpoint, bool reset);
+void leerComandosSerial();
 
 // ---------------- OBJETO ENCODER IMU ----------------
 AS5600 encoder;
@@ -42,6 +44,8 @@ float gyroZ_bias = 0.0;
 // ----------------- Controlador -----------------
 int controlMode = HINF;
 int controlModeActual;
+
+bool run = 0;
 
 bool enableAprox = true;
 bool aproximacion = true;
@@ -73,7 +77,7 @@ float c = 0.0063;
 int pwm = 0;
 
 // --- DEBUG ---
-bool graficarArd = true;
+bool graficarArd = false;
 
 // ------------- FRECUENCIA CONTROL MUESTREO ------------
 const unsigned long Ts_us = 10 * 1e3; // 1 ms = 1000 us -> 100ms
@@ -139,6 +143,8 @@ void loop()
     unsigned long now_us = micros();
     unsigned long now_ms = millis();
 
+    leerComandosSerial();
+
     if (now_us - lastMicros >= Ts_us)
     {
         lastMicros = now_us;
@@ -159,49 +165,57 @@ void loop()
         float wz = getGyroZ(); // velocidad angular calibrada
 
         mpu.getEvent(&accel, &gyro, &temp);
-
-        // --- Rutina aproximación ---
-        if (aproximacion && enableAprox) // enableAprox habilitia o deshabilita el uso de la rutina de aprox.
+        if (run)
         {
-            controlModeActual = PI_SLOW;
-            if (millis() > tAproximacion + 10000)
+            // --- Rutina aproximación ---
+            if (aproximacion && enableAprox) // enableAprox habilitia o deshabilita el uso de la rutina de aprox.
             {
+                controlModeActual = PI_SLOW;
+                if (millis() > tAproximacion + 10000)
+                {
+                    aproximacion = false;
+                    computePISlow(0, 0, true);
+                    pwmEq = pwm; // Capturamos el pwm de equilibrio
+                    //setpoint -= 10;
+                }
+            }
+            else
+            {
+                controlModeActual = controlMode;
+            }
+
+            // --- Modo de control ---
+
+            switch (controlModeActual)
+            {
+            case PID:
+                pwm = pwmEq + computePID(angle);
+                break;
+            case HINF:
+                pwm = (int)hinf_control((setpoint - angle));
+                break;
+            case SMC:
+                pwm = computePID(angle);
+                break;
+            case MRAC:
+                pwm = computePID(angle);
+                break;
+            case PI_D:
+                pwm = computePI_D(angle, wz);
+                break;
+            case PI_SLOW:
+                pwm = computePISlow(angle, setpoint, false);
+                break;
+            case OFF_CONTROL:
+                pwm = 0;
                 aproximacion = false;
-                pwmEq = pwm; // Capturamos el pwm de equilibrio
-                setpoint -= 10;
+                break;
+            default:
+                pwm = 0;
+                break;
             }
         }
-        else
-        {
-            controlModeActual = controlMode;
-        }
 
-        // --- Modo de control ---
-
-        switch (controlModeActual)
-        {
-        case PID:
-            pwm = computePID(angle);
-            break;
-        case HINF:
-            pwm = (int)hinf_control((setpoint - angle));
-            break;
-        case SMC:
-            pwm = computePID(angle);
-            break;
-        case MRAC:
-            pwm = computePID(angle);
-            break;
-        case PI_D:
-            pwm = computePI_D(angle, wz);
-            break;
-        case PI_SLOW:
-            pwm = computePISlow(angle, setpoint);
-            break;
-        default:
-            pwm = 0;
-            break;
-        }
         // int pwm = (int)pidOut;
         if (!graficarArd)
         {
@@ -212,8 +226,29 @@ void loop()
             Serial.print(angle);
             Serial.print("  PWM: ");
             Serial.print(pwm);
+            Serial.print("  MODO_ACT: ");
+            if(controlModeActual == 0) {Serial.print("PID");} //PID
+            else if(controlModeActual == 1){Serial.print("SMC");}
+            else if(controlModeActual == 2){Serial.print("MRAC");}
+            else if(controlModeActual == 3){Serial.print("HINF");}
+            else if(controlModeActual == 4){Serial.print("PI_D");}
+            else if(controlModeActual == 5){Serial.print("PI_SLOW");}
+            else if(controlModeActual == 80){Serial.print("80 STOP");}
+            Serial.print("  MODO_CONT: ");
+            if(controlMode == 0) {Serial.print("PID");} //PID
+            else if(controlMode == 1){Serial.print("SMC");}
+            else if(controlMode == 2){Serial.print("MRAC");}
+            else if(controlMode == 3){Serial.print("HINF");}
+            else if(controlMode == 4){Serial.print("PI_D");}
+            else if(controlMode == 5){Serial.print("PI_SLOW");}
+            else if(controlMode == 80){Serial.print("80 STOP");}
+            Serial.print("  RUN: ");
+            Serial.print(run);
+            Serial.print("  APROX: ");
+            Serial.print(aproximacion);
             Serial.print(" GyroZ: ");
             Serial.println(wz, 4);
+
         }
         else
         {
@@ -388,14 +423,21 @@ float hinf_control(float ref)
     return u;
 }
 
-float computePISlow(float angle, float setpoint)
+float computePISlow(float angle, float setpoint, bool reset)
 {
     static float integral_aprox = 0.0;
     static float errorPrev_aprox = 0.0;
     static unsigned long lastTime_aprox = 0;
 
+    if (reset)
+    {
+        integral_aprox = 0.0;
+        errorPrev_aprox = 0.0;
+        lastTime_aprox = 0;
+    }
+
     const float Kp_aprox = 1.0;
-    const float Ki_aprox = 2; //1.2
+    const float Ki_aprox = 2; // 1.2
     const float Kd_aprox = 1; // 0.8
 
     unsigned long now_aprox = millis();
@@ -419,4 +461,78 @@ float computePISlow(float angle, float setpoint)
     float u_aprox = Kp_aprox * error_aprox + Ki_aprox * integral_aprox + Kd_aprox * derivative_aprox;
 
     return u_aprox;
+}
+
+void leerComandosSerial()
+{
+    static String buffer = "";
+
+    // Leer todo lo disponible sin bloquear
+    while (Serial.available())
+    {
+        char c = Serial.read();
+
+        // Si recibimos <enter> o coma, procesamos el número
+        if (c == '\n' || c == '\r' || c == ',')
+        {
+            if (buffer.length() > 0)
+            {
+                long numero = buffer.toInt();
+                buffer = ""; // limpiar
+
+                // --- Rango 0 a 180 -> cambiar setpoint ---
+                if (numero == 0)
+                {
+                    controlMode = OFF_CONTROL;
+                    aproximacion = false;
+                    computePISlow(0, 0, true); // reset PID
+                }
+                else if (numero > 0 && numero <= 180)
+                {
+                    setpoint = numero;
+                    //Serial.println("Setpoint actualizado");
+                }
+
+                // --- Rango 1000 a 2000 -> hacer otra acción ---
+                else if (numero >= 200 && numero <= 300)
+                {
+                    // ejemplo: cambiar modo de control
+                    computePISlow(0, 0, true); // reset PID
+                    aproximacion = true;
+                    tAproximacion = millis();
+                    setpoint = 80;
+                    //Serial.println("aproximacion true");
+                    //delay(1000);
+                }
+
+                // --- Rango 3000 a 4000 ---
+                else if (numero >= 300 && numero <= 400)
+                {
+                    controlMode = PID;
+                    //Serial.println("PID");
+                }
+                else if (numero >= 400 && numero <= 500)
+                {
+                    controlMode = HINF;
+                    //Serial.println("HINF");
+                }
+
+                // --- Número fuera de todos los rangos ---
+                else
+                {
+                    run = !run;
+                    tAproximacion = millis();
+                    computePISlow(0, 0, true); // reset PID
+                }
+            }
+        }
+        else if (isDigit(c))
+        {
+            buffer += c; // solo guardar números
+        }
+        else if (c == '-') // permitir números negativos
+        {
+            buffer += c;
+        }
+    }
 }
