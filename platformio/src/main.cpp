@@ -21,12 +21,12 @@ using namespace BLA; // Para LinealAgebra
 #define MRAC 2
 #define HINF 3
 #define PI_D 4    // PI+D
-#define PI_SLOW 5 // PI+D
+#define PI_SLOW 5 // PID
 #define OFF_CONTROL 80
 
 // ---------------- PROTOTIPOS -------------------
-float computePID(float angle);
-float computePI_D(float angle, float wz);
+float computePID(float angle, bool reset);
+float computePI_D(float angle, float wz, bool reset);
 void calibrateGyroZ(int samples);
 float hinf_control(float ref);
 float getGyroZ();
@@ -42,8 +42,8 @@ sensors_event_t accel, gyro, temp;
 float gyroZ_bias = 0.0;
 
 // ----------------- Controlador -----------------
-int controlMode = HINF;
-int controlModeActual;
+int controlMode = PI_D;
+int controlModeActual = controlMode;
 
 bool run = 0;
 
@@ -58,8 +58,8 @@ const int PWM_FREQ = 20000;
 const int PWM_RES = 10;
 
 // ---------------- PID ----------------
-float Kp = 7.80e-1;
-float Ki = 3.9979;
+float Kp = 15;
+float Ki = 3.9979e-1;
 float Kd = 6.214e-2;
 
 float errorPrev = 0.0;
@@ -86,7 +86,8 @@ unsigned long lastMicros = 0;
 const unsigned long Ts_buttons_ms = 120; // tiempo de lectura de botones (Ojo está en ms, no us)
 unsigned long t_buttons_prev = 0;
 
-float setpoint = 80.0;
+float p_operacion = 80;
+float setpoint = 10.0;
 const float step_ref = 5.0;
 
 void setup()
@@ -170,13 +171,11 @@ void loop()
             // --- Rutina aproximación ---
             if (aproximacion && enableAprox) // enableAprox habilitia o deshabilita el uso de la rutina de aprox.
             {
-                controlModeActual = PI_SLOW;
-                if (millis() > tAproximacion + 10000)
-                {
+                controlModeActual = controlMode;
+                setpoint += 0.02;
+                if(abs(setpoint-p_operacion)< 0.1){
                     aproximacion = false;
-                    computePISlow(0, 0, true);
-                    pwmEq = pwm; // Capturamos el pwm de equilibrio
-                    //setpoint -= 10;
+                    controlModeActual = controlMode;
                 }
             }
             else
@@ -189,19 +188,19 @@ void loop()
             switch (controlModeActual)
             {
             case PID:
-                pwm = pwmEq + computePID(angle);
+                pwm = computePID(angle, false);
                 break;
             case HINF:
                 pwm = (int)hinf_control((setpoint - angle));
                 break;
             case SMC:
-                pwm = computePID(angle);
+                pwm = computePID(angle,false);
                 break;
             case MRAC:
-                pwm = computePID(angle);
+                pwm = computePID(angle,false);
                 break;
             case PI_D:
-                pwm = computePI_D(angle, wz);
+                pwm = computePI_D(angle, wz,false);
                 break;
             case PI_SLOW:
                 pwm = computePISlow(angle, setpoint, false);
@@ -296,9 +295,12 @@ void loop()
 }
 
 // -------- PID --------
-float computePID(float angle)
+float computePID(float angle, bool reset)
 {
-
+    if(reset){
+        float errorPrev = 0.0;
+        float integral = 0.0;
+    }
     unsigned long now = millis();
     float dt = (now - tPID_prev) / 1000.0;
     if (dt <= 0)
@@ -323,8 +325,11 @@ float computePID(float angle)
     return out;
 }
 
-float computePI_D(float angle, float wz)
+float computePI_D(float angle, float wz, bool reset)
 {
+    if(reset){
+       integral = 0; 
+    }
     unsigned long now = millis();
     float dt = (now - tPID_prev) / 1000.0;
     if (dt <= 0)
@@ -335,10 +340,10 @@ float computePI_D(float angle, float wz)
     float error = setpoint - angle;
 
     integral += error * dt;
-    if (integral > 200)
-        integral = 200;
-    if (integral < -200)
-        integral = -200;
+    if (integral > 500)
+        integral = 500.0;
+    if (integral < -500)
+        integral = -500.0;
 
     // --- PI + D (gyro) ---
     float out = Kp * error + Ki * integral - Kd * wz;
@@ -417,7 +422,7 @@ float hinf_control(float ref)
     }
     else
     {
-        u = u + pwmEq;
+        u = u + 660;//pwmEq;
     }
 
     return u;
@@ -497,10 +502,10 @@ void leerComandosSerial()
                 else if (numero >= 200 && numero <= 300)
                 {
                     // ejemplo: cambiar modo de control
-                    computePISlow(0, 0, true); // reset PID
+                    //computePISlow(0, 0, true); // reset PID
                     aproximacion = true;
                     tAproximacion = millis();
-                    setpoint = 80;
+                    setpoint = 10;
                     //Serial.println("aproximacion true");
                     //delay(1000);
                 }
@@ -508,7 +513,8 @@ void leerComandosSerial()
                 // --- Rango 3000 a 4000 ---
                 else if (numero >= 300 && numero <= 400)
                 {
-                    controlMode = PID;
+                    controlMode = PI_D;
+                    computePI_D(0,0,true);
                     //Serial.println("PID");
                 }
                 else if (numero >= 400 && numero <= 500)
