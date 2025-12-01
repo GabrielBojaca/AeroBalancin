@@ -338,43 +338,6 @@ float getGyroZ()
 
 float hinf_control(float ref)
 {
-    /*
-    static const BLA::Matrix<4, 4> Ad = {
-        0.9982, 1.68e-25, -1.348e-21, 3.178e-23,
-        0.04555, -3.879e-09, 1.907e-06, -7.352e-07,
-        395.8, -3.355e-05, 0.0165, -0.006359,
-        1257.0, 0.00347, -1.706, 0.6578};
-
-    static const BLA::Matrix<4, 1> Bd = {
-        0.01998,
-        -0.008256,
-        -71.72,
-        558.2};
-
-    static const BLA::Matrix<1, 4> Cd = {
-        70.92, 0.0159, -0.1519, -0.006245};
-
-    static const float Dd = 0.0f;
-*/
-    /*
-        static const BLA::Matrix<4, 4> Ad = {
-            0.9982, -1.365e-25, -2.158e-21, -1.741e-23,
-            0.05162, -6.707e-09, 2.18e-06, -8.511e-07,
-            300.3, -3.88e-05, 0.01261, -0.004924,
-            971.5, 0.004798, -1.559, 0.6089};
-
-        static const BLA::Matrix<4, 1> Bd = {
-            0.01998,
-            -0.007427,
-            -43.18,
-            529.8};
-
-        static const BLA::Matrix<1, 4> Cd = {
-            78.36, 0.02374, -0.2276, -0.007732};
-
-        static const float Dd = 0.0f;
-    */
-
     static const BLA::Matrix<4, 4> Ad = {
         0.9991, 0.0, 0.0, 0.0,
         0.269, -0.0003531, 2.427e-05, -4.32e-06,
@@ -391,6 +354,10 @@ float hinf_control(float ref)
         151, 42.79, -0.5241, -0.01239};
 
     static const float Dd = 0.0f;
+
+    //||S||_∞  = 1.198
+    //||T||_∞  = 1.23447
+    //||KS||_∞ = 17.559
 
     // ---- Control H∞ discreto ----
     xk = Ad * xk + Bd * ref;
