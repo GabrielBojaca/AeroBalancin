@@ -27,6 +27,7 @@ using namespace BLA; // Para LinealAgebra
 // ---------------- PROTOTIPOS -------------------
 float computePID(float angle, bool reset);
 float computePI_D(float angle, float wz, bool reset);
+float computeSMC(float angle_deg, float wz_rad, float ref_deg);
 void calibrateGyroZ(int samples);
 float hinf_control(float ref);
 float getGyroZ();
@@ -194,7 +195,7 @@ void loop()
                 pwm = (int)hinf_control((setpoint - angle));
                 break;
             case SMC:
-                pwm = computePID(angle,false);
+                pwm = computeSMC(angle, wz, setpoint);
                 break;
             case MRAC:
                 pwm = computePID(angle,false);
@@ -522,7 +523,11 @@ void leerComandosSerial()
                     controlMode = HINF;
                     //Serial.println("HINF");
                 }
-
+                else if (numero >= 500 && numero <= 600)
+                {
+                    controlMode = SMC;
+                    //Serial.println("HINF");
+                }
                 // --- Número fuera de todos los rangos ---
                 else
                 {
@@ -541,4 +546,63 @@ void leerComandosSerial()
             buffer += c;
         }
     }
+}
+float computeSMC(float angle_deg, float wz_rad, float ref_deg)
+{
+    // ========= Conversión =========
+    float x1 = angle_deg * 3.141592 / 180.0;
+    float x1_r = ref_deg * 3.141592 / 180.0;
+
+    float e     = x1 - x1_r;   // error de ángulo (rad)
+    float e_dot = wz_rad;      // velocidad angular ya está en rad/s
+
+    // ========= Parámetros reales del aerobalancín =========
+    const float Wcp = 5.3e-3 * 9.81;
+    const float Wb  = 28.7e-3 * 9.81;
+    const float Wm  = (3.5e-3 + 2.4e-3) * 9.81;
+
+    const float d1 = 130.5e-3;
+    const float d2 = 50e-3;
+    const float er = 13.28e-3;
+
+    const float I  = 1.3636e-4;
+    const float mu = 7.406734e-04;
+
+    // torque gravitacional neto
+    float k = (Wcp * d2 - d1 * Wm - er * Wb);
+
+    // ========= Parámetros del SMC =========
+    const float lambda = 1.5;
+    const float K      = 0.02;    // GANANCIA DEL DISCONTINUO
+    const float phi    = 0.4;    // capa límite
+
+    // ========= Superficie deslizante =========
+    float s = lambda * e + e_dot;
+
+    // ========= Dinámica del sistema =========
+    float fx = (k/I)*sinf(x1) - (mu/I)*wz_rad;
+    float b  = d1 / I;
+
+    // ========= Control equivalente =========
+    float u_eq = -(fx + lambda*e_dot) / b;
+
+    // ========= Saturación suave (anti-chattering) =========
+    float sat;
+    if (fabs(s) > phi) sat = (s > 0) - (s < 0);
+    else sat = s / phi;
+
+    // Control total
+    float u = (u_eq - K * sat)/8.6928e-5;
+
+    // ======== Limitar =========
+    const float u_min = 0;
+    const float u_max =  800;
+
+    if (u > u_max) u = u_max;
+    if (u < u_min) u = u_min;
+
+    // ======== Mapear a PWM (0–1023) ========
+    
+
+    return u;
 }
