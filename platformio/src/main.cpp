@@ -28,6 +28,7 @@ using namespace BLA; // Para LinealAgebra
 float computePID(float angle, bool reset);
 float computePI_D(float angle, float wz, bool reset);
 float computeSMC(float angle_deg, float wz_rad, float ref_deg);
+float computeMRAC(float angle, float wz, float ref);
 void calibrateGyroZ(int samples);
 float hinf_control(float ref);
 float getGyroZ();
@@ -43,10 +44,10 @@ sensors_event_t accel, gyro, temp;
 float gyroZ_bias = 0.0;
 
 // ----------------- Controlador -----------------
-int controlMode = PI_D;
+int controlMode = MRAC;
 int controlModeActual = controlMode;
 
-bool run = 0;
+bool run = true;
 
 bool enableAprox = true;
 bool aproximacion = true;
@@ -74,6 +75,26 @@ float a = 5.2070e-08;
 float b = 2.5241e-05;
 float c = 0.0063;
 
+// ------ MRAC ------
+float K_pos = -0.0027; 
+float K_vel = -0.0004;
+float K_r   =  0.0012;
+
+// tasa de adaptación
+float GAMMA_POS = 0.000001; 
+float GAMMA_VEL = 0.000001; 
+float GAMMA_R   = 0.000001;
+
+float xm_pos = 0.0;
+float xm_vel = 0.0;
+
+float Am_wn = 3.5; 
+float Am_zeta = 1.0;
+
+unsigned long t_mrac_prev = 0;
+bool mrac_first_run = true;
+unsigned long t_mrac_start_ms = 0;
+
 // --- SALIDA ---
 int pwm = 0;
 
@@ -88,7 +109,7 @@ const unsigned long Ts_buttons_ms = 120; // tiempo de lectura de botones (Ojo es
 unsigned long t_buttons_prev = 0;
 
 float p_operacion = 80;
-float setpoint = 10.0;
+float setpoint = 80.0;
 const float step_ref = 5.0;
 
 void setup()
@@ -198,7 +219,7 @@ void loop()
                 pwm = computeSMC(angle, wz, setpoint);
                 break;
             case MRAC:
-                pwm = computePID(angle,false);
+                pwm = computeMRAC(angle, wz, setpoint);
                 break;
             case PI_D:
                 pwm = computePI_D(angle, wz,false);
@@ -605,4 +626,97 @@ float computeSMC(float angle_deg, float wz_rad, float ref_deg)
     
 
     return u;
+}
+
+float computeMRAC(float angle, float wz, float ref)
+{
+    unsigned long now = micros();
+    
+    if (mrac_first_run) {
+        t_mrac_prev = now;
+        
+        xm_pos = ref;  
+        xm_vel = 0;
+        
+        t_mrac_start_ms = millis(); 
+        mrac_first_run = false;
+        return 0;
+    }
+    
+    float dt = (now - t_mrac_prev) / 1000000.0;
+    t_mrac_prev = now;
+    if (dt > 0.1 || dt <= 0) dt = 0.01; 
+
+    float pos_real = angle; 
+    float vel_real = wz * (180.0 / PI); 
+
+    // Evolución del Modelo
+    float dxm_pos = xm_vel;
+    float dxm_vel = (Am_wn * Am_wn * ref) - (2.0 * Am_zeta * Am_wn * xm_vel) - (Am_wn * Am_wn * xm_pos);
+    xm_pos += dxm_pos * dt;
+    xm_vel += dxm_vel * dt;
+
+    // Calculo del error
+    float e_pos = pos_real - xm_pos;
+    float e_vel = vel_real - xm_vel;
+    float error_weighted = (e_vel + e_pos); 
+
+    bool modo_arranque = (millis() - t_mrac_start_ms < 5000);
+
+    // ADAPTACIÓN DE GANANCIAS (SIN DELTA - DIRECTA)
+    if (abs(e_pos) < 30.0 || modo_arranque) 
+    {
+        // VERSIÓN DIRECTA 
+        // Esto permite cambios instantáneos en las K
+        K_pos += -GAMMA_POS * error_weighted * pos_real * dt;
+        K_vel += -GAMMA_VEL * error_weighted * vel_real * dt;
+        K_r   += -GAMMA_R   * error_weighted * ref * dt;
+
+        /* // VERSIÓN CON DELTA (COMENTADA - RESPALDO)
+        //  suavizar cambios bruscos
+        
+        float dK_pos = -GAMMA_POS * error_weighted * pos_real * dt;
+        float dK_vel = -GAMMA_VEL * error_weighted * vel_real * dt;
+        float dK_r   = -GAMMA_R   * error_weighted * ref * dt;
+        
+        float MAX_DELTA = 0.002; 
+
+        if (dK_pos > MAX_DELTA) dK_pos = MAX_DELTA;
+        if (dK_pos < -MAX_DELTA) dK_pos = -MAX_DELTA;
+
+        if (dK_vel > MAX_DELTA) dK_vel = MAX_DELTA;
+        if (dK_vel < -MAX_DELTA) dK_vel = -MAX_DELTA;
+        
+        if (dK_r > MAX_DELTA) dK_r = MAX_DELTA;
+        if (dK_r < -MAX_DELTA) dK_r = -MAX_DELTA;
+
+        K_pos += dK_pos;
+        K_vel += dK_vel;
+        K_r   += dK_r;
+        */
+    }
+    // ---------------------------------------------------------
+    
+    // Limites de seguridad (Hard Limits)
+    if (K_pos > 0) K_pos = 0;
+    if (K_pos < -0.25) K_pos = -0.25;
+    if (K_vel > 0) K_vel = 0;
+    if (K_vel < -0.1) K_vel = -0.1;
+
+    // Gravedad y Ley de Control
+    float ang_rad = pos_real * (PI / 180.0);
+    float u_gravedad = 2.0 * sin(ang_rad); 
+
+    float u = (K_pos * pos_real) + (K_vel * vel_real) + (K_r * ref) + u_gravedad;
+
+    // Compensación zona muerta
+    if (abs(u) > 0.05 && abs(u) < 1.2) {
+        if (u > 0) u = 1.3; else u = -1.3;
+    }
+
+    float out_pwm = u * 205.0; 
+    if (out_pwm > 1023) out_pwm = 1023;
+    if (out_pwm < -1023) out_pwm = -1023;
+
+    return out_pwm;
 }
