@@ -97,3 +97,19 @@ T = feedback(C*G,1);
 figure;
 step(T); grid on;
 title('Respuesta al escalón con PID en términos de τ_i y τ_d');
+
+
+figure;
+rlocus(L); hold on; grid on;
+title('Root Locus en términos de τ_i y τ_d');
+
+% Calcular lazo cerrado para ese K
+sys_cl = feedback(K*C0*G,1);
+
+% Obtener polos
+p_cl = pole(sys_cl);
+
+% Dibujar polos en el root locus
+plot(real(p_cl), imag(p_cl), 'rx', 'MarkerSize', 12, 'LineWidth', 2);
+
+legend('Root Locus','Polos con K seleccionado');
