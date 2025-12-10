@@ -594,7 +594,7 @@ float computeSMC(float angle_deg, float wz_rad, float ref_deg)
     const float er = 13.28e-3;
 
     const float I  = 1.3636e-4;
-    const float mu = 7.406734e-04;
+    const float mu = 4.406734e-04;
 
     // torque gravitacional neto
     float k = (Wcp * d2 - d1 * Wm - er * Wb);
