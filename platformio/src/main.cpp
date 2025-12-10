@@ -65,8 +65,12 @@ const int PWM_RES = 10;
 //float Kd = 6.214e-2;
 
 float Kp = 7.802257e-01;
-float Ki = 3.997913;
+float Ki = 2;
 float Kd = 6.214532e-02;
+
+//float Kp = 7.802257e-01;
+//float Ki = 3.997913;
+//float Kd = 6.214532e-02;
 
 float errorPrev = 0.0;
 float integral = 0.0;
