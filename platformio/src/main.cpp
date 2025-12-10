@@ -21,12 +21,14 @@ using namespace BLA; // Para LinealAgebra
 #define MRAC 2
 #define HINF 3
 #define PI_D 4    // PI+D
-#define PI_SLOW 5 // PI+D
+#define PI_SLOW 5 // PID
 #define OFF_CONTROL 80
 
 // ---------------- PROTOTIPOS -------------------
-float computePID(float angle);
-float computePI_D(float angle, float wz);
+float computePID(float angle, bool reset);
+float computePI_D(float angle, float wz, bool reset);
+float computeSMC(float angle_deg, float wz_rad, float ref_deg);
+float computeMRAC(float angle, float wz, float ref);
 void calibrateGyroZ(int samples);
 float hinf_control(float ref);
 float getGyroZ();
@@ -42,10 +44,10 @@ sensors_event_t accel, gyro, temp;
 float gyroZ_bias = 0.0;
 
 // ----------------- Controlador -----------------
-int controlMode = HINF;
-int controlModeActual;
+int controlMode = MRAC;
+int controlModeActual = controlMode;
 
-bool run = 0;
+bool run = true;
 
 bool enableAprox = true;
 bool aproximacion = true;
@@ -58,8 +60,8 @@ const int PWM_FREQ = 20000;
 const int PWM_RES = 10;
 
 // ---------------- PID ----------------
-float Kp = 7.80e-1;
-float Ki = 3.9979;
+float Kp = 15;
+float Ki = 3.9979e-1;
 float Kd = 6.214e-2;
 
 float errorPrev = 0.0;
@@ -72,6 +74,26 @@ BLA::Matrix<4, 1> xk = {0, 0, 0, 0};
 float a = 5.2070e-08;
 float b = 2.5241e-05;
 float c = 0.0063;
+
+// ------ MRAC ------
+float K_pos = -0.0027; 
+float K_vel = -0.0004;
+float K_r   =  0.0012;
+
+// tasa de adaptación
+float GAMMA_POS = 0.000001; 
+float GAMMA_VEL = 0.000001; 
+float GAMMA_R   = 0.000001;
+
+float xm_pos = 0.0;
+float xm_vel = 0.0;
+
+float Am_wn = 3.5; 
+float Am_zeta = 1.0;
+
+unsigned long t_mrac_prev = 0;
+bool mrac_first_run = true;
+unsigned long t_mrac_start_ms = 0;
 
 // --- SALIDA ---
 int pwm = 0;
@@ -86,6 +108,7 @@ unsigned long lastMicros = 0;
 const unsigned long Ts_buttons_ms = 120; // tiempo de lectura de botones (Ojo está en ms, no us)
 unsigned long t_buttons_prev = 0;
 
+float p_operacion = 80;
 float setpoint = 80.0;
 const float step_ref = 5.0;
 
@@ -163,20 +186,18 @@ void loop()
 
         // --- Lectura giroscopio ---
         float wz = getGyroZ(); // velocidad angular calibrada
-
+        
         mpu.getEvent(&accel, &gyro, &temp);
         if (run)
         {
             // --- Rutina aproximación ---
             if (aproximacion && enableAprox) // enableAprox habilitia o deshabilita el uso de la rutina de aprox.
             {
-                controlModeActual = PI_SLOW;
-                if (millis() > tAproximacion + 10000)
-                {
+                controlModeActual = controlMode;
+                setpoint += 0.02;
+                if(abs(setpoint-p_operacion)< 0.1){
                     aproximacion = false;
-                    computePISlow(0, 0, true);
-                    pwmEq = pwm; // Capturamos el pwm de equilibrio
-                    //setpoint -= 10;
+                    controlModeActual = controlMode;
                 }
             }
             else
@@ -189,19 +210,19 @@ void loop()
             switch (controlModeActual)
             {
             case PID:
-                pwm = pwmEq + computePID(angle);
+                pwm = computePID(angle, false);
                 break;
             case HINF:
                 pwm = (int)hinf_control((setpoint - angle));
                 break;
             case SMC:
-                pwm = computePID(angle);
+                pwm = computeSMC(angle, wz, setpoint);
                 break;
             case MRAC:
-                pwm = computePID(angle);
+                pwm = computeMRAC(angle, wz, setpoint);
                 break;
             case PI_D:
-                pwm = computePI_D(angle, wz);
+                pwm = computePI_D(angle, wz,false);
                 break;
             case PI_SLOW:
                 pwm = computePISlow(angle, setpoint, false);
@@ -224,6 +245,8 @@ void loop()
             Serial.print(setpoint);
             Serial.print("  Ang: ");
             Serial.print(angle);
+            Serial.print(" Vel: ");
+            Serial.print(wz);
             Serial.print("  PWM: ");
             Serial.print(pwm);
             Serial.print("  MODO_ACT: ");
@@ -296,9 +319,12 @@ void loop()
 }
 
 // -------- PID --------
-float computePID(float angle)
+float computePID(float angle, bool reset)
 {
-
+    if(reset){
+        float errorPrev = 0.0;
+        float integral = 0.0;
+    }
     unsigned long now = millis();
     float dt = (now - tPID_prev) / 1000.0;
     if (dt <= 0)
@@ -323,8 +349,11 @@ float computePID(float angle)
     return out;
 }
 
-float computePI_D(float angle, float wz)
+float computePI_D(float angle, float wz, bool reset)
 {
+    if(reset){
+       integral = 0; 
+    }
     unsigned long now = millis();
     float dt = (now - tPID_prev) / 1000.0;
     if (dt <= 0)
@@ -335,10 +364,10 @@ float computePI_D(float angle, float wz)
     float error = setpoint - angle;
 
     integral += error * dt;
-    if (integral > 200)
-        integral = 200;
-    if (integral < -200)
-        integral = -200;
+    if (integral > 500)
+        integral = 500.0;
+    if (integral < -500)
+        integral = -500.0;
 
     // --- PI + D (gyro) ---
     float out = Kp * error + Ki * integral - Kd * wz;
@@ -417,7 +446,7 @@ float hinf_control(float ref)
     }
     else
     {
-        u = u + pwmEq;
+        u = u + 660;//pwmEq;
     }
 
     return u;
@@ -497,10 +526,10 @@ void leerComandosSerial()
                 else if (numero >= 200 && numero <= 300)
                 {
                     // ejemplo: cambiar modo de control
-                    computePISlow(0, 0, true); // reset PID
+                    //computePISlow(0, 0, true); // reset PID
                     aproximacion = true;
                     tAproximacion = millis();
-                    setpoint = 80;
+                    setpoint = 10;
                     //Serial.println("aproximacion true");
                     //delay(1000);
                 }
@@ -508,7 +537,8 @@ void leerComandosSerial()
                 // --- Rango 3000 a 4000 ---
                 else if (numero >= 300 && numero <= 400)
                 {
-                    controlMode = PID;
+                    controlMode = PI_D;
+                    computePI_D(0,0,true);
                     //Serial.println("PID");
                 }
                 else if (numero >= 400 && numero <= 500)
@@ -516,7 +546,16 @@ void leerComandosSerial()
                     controlMode = HINF;
                     //Serial.println("HINF");
                 }
-
+                else if (numero >= 500 && numero <= 600)
+                {
+                    controlMode = SMC;
+                    //Serial.println("HINF");
+                }
+                else if (numero >= 600 && numero <= 700)
+                {
+                    controlMode = MRAC;
+                    //Serial.println("HINF");
+                }    
                 // --- Número fuera de todos los rangos ---
                 else
                 {
@@ -535,4 +574,156 @@ void leerComandosSerial()
             buffer += c;
         }
     }
+}
+float computeSMC(float angle_deg, float wz_rad, float ref_deg)
+{
+    // ========= Conversión =========
+    float x1 = angle_deg * 3.141592 / 180.0;
+    float x1_r = ref_deg * 3.141592 / 180.0;
+
+    float e     = x1 - x1_r;   // error de ángulo (rad)
+    float e_dot = wz_rad;      // velocidad angular ya está en rad/s
+
+    // ========= Parámetros reales del aerobalancín =========
+    const float Wcp = 5.3e-3 * 9.81;
+    const float Wb  = 28.7e-3 * 9.81;
+    const float Wm  = (3.5e-3 + 2.4e-3) * 9.81;
+
+    const float d1 = 130.5e-3;
+    const float d2 = 50e-3;
+    const float er = 13.28e-3;
+
+    const float I  = 1.3636e-4;
+    const float mu = 7.406734e-04;
+
+    // torque gravitacional neto
+    float k = (Wcp * d2 - d1 * Wm - er * Wb);
+
+    // ========= Parámetros del SMC =========
+    const float lambda = 1.5;
+    const float K      = 0.02;    // GANANCIA DEL DISCONTINUO
+    const float phi    = 0.4;    // capa límite
+
+    // ========= Superficie deslizante =========
+    float s = lambda * e + e_dot;
+
+    // ========= Dinámica del sistema =========
+    float fx = (k/I)*sinf(x1) - (mu/I)*wz_rad;
+    float b  = d1 / I;
+
+    // ========= Control equivalente =========
+    float u_eq = -(fx + lambda*e_dot) / b;
+
+    // ========= Saturación suave (anti-chattering) =========
+    float sat;
+    if (fabs(s) > phi) sat = (s > 0) - (s < 0);
+    else sat = s / phi;
+
+    // Control total
+    float u = (u_eq - K * sat)/8.6928e-5;
+
+    // ======== Limitar =========
+    const float u_min = 0;
+    const float u_max =  800;
+
+    if (u > u_max) u = u_max;
+    if (u < u_min) u = u_min;
+
+    // ======== Mapear a PWM (0–1023) ========
+    
+
+    return u;
+}
+
+float computeMRAC(float angle, float wz, float ref)
+{
+    unsigned long now = micros();
+    
+    if (mrac_first_run) {
+        t_mrac_prev = now;
+        
+        xm_pos = ref;  
+        xm_vel = 0;
+        
+        t_mrac_start_ms = millis(); 
+        mrac_first_run = false;
+        return 0;
+    }
+    
+    float dt = (now - t_mrac_prev) / 1000000.0;
+    t_mrac_prev = now;
+    if (dt > 0.1 || dt <= 0) dt = 0.01; 
+
+    float pos_real = angle; 
+    float vel_real = wz * (180.0 / PI); 
+
+    // Evolución del Modelo
+    float dxm_pos = xm_vel;
+    float dxm_vel = (Am_wn * Am_wn * ref) - (2.0 * Am_zeta * Am_wn * xm_vel) - (Am_wn * Am_wn * xm_pos);
+    xm_pos += dxm_pos * dt;
+    xm_vel += dxm_vel * dt;
+
+    // Calculo del error
+    float e_pos = pos_real - xm_pos;
+    float e_vel = vel_real - xm_vel;
+    float error_weighted = (e_vel + e_pos); 
+
+    bool modo_arranque = (millis() - t_mrac_start_ms < 5000);
+
+    // ADAPTACIÓN DE GANANCIAS (SIN DELTA - DIRECTA)
+    if (abs(e_pos) < 30.0 || modo_arranque) 
+    {
+        // VERSIÓN DIRECTA 
+        // Esto permite cambios instantáneos en las K
+        K_pos += -GAMMA_POS * error_weighted * pos_real * dt;
+        K_vel += -GAMMA_VEL * error_weighted * vel_real * dt;
+        K_r   += -GAMMA_R   * error_weighted * ref * dt;
+
+        /* // VERSIÓN CON DELTA (COMENTADA - RESPALDO)
+        //  suavizar cambios bruscos
+        
+        float dK_pos = -GAMMA_POS * error_weighted * pos_real * dt;
+        float dK_vel = -GAMMA_VEL * error_weighted * vel_real * dt;
+        float dK_r   = -GAMMA_R   * error_weighted * ref * dt;
+        
+        float MAX_DELTA = 0.002; 
+
+        if (dK_pos > MAX_DELTA) dK_pos = MAX_DELTA;
+        if (dK_pos < -MAX_DELTA) dK_pos = -MAX_DELTA;
+
+        if (dK_vel > MAX_DELTA) dK_vel = MAX_DELTA;
+        if (dK_vel < -MAX_DELTA) dK_vel = -MAX_DELTA;
+        
+        if (dK_r > MAX_DELTA) dK_r = MAX_DELTA;
+        if (dK_r < -MAX_DELTA) dK_r = -MAX_DELTA;
+
+        K_pos += dK_pos;
+        K_vel += dK_vel;
+        K_r   += dK_r;
+        */
+    }
+    // ---------------------------------------------------------
+    
+    // Limites de seguridad (Hard Limits)
+    if (K_pos > 0) K_pos = 0;
+    if (K_pos < -0.25) K_pos = -0.25;
+    if (K_vel > 0) K_vel = 0;
+    if (K_vel < -0.1) K_vel = -0.1;
+
+    // Gravedad y Ley de Control
+    float ang_rad = pos_real * (PI / 180.0);
+    float u_gravedad = 2.0 * sin(ang_rad); 
+
+    float u = (K_pos * pos_real) + (K_vel * vel_real) + (K_r * ref) + u_gravedad;
+
+    // Compensación zona muerta
+    if (abs(u) > 0.05 && abs(u) < 1.2) {
+        if (u > 0) u = 1.3; else u = -1.3;
+    }
+
+    float out_pwm = u * 205.0; 
+    if (out_pwm > 1023) out_pwm = 1023;
+    if (out_pwm < -1023) out_pwm = -1023;
+
+    return out_pwm;
 }
