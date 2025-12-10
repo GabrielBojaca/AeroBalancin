@@ -11,7 +11,7 @@ from matplotlib.figure import Figure
 # ---------------------------
 # CONFIGURAR PUERTO SERIAL
 # ---------------------------
-SERIAL_PORT = "COM3"      # <--- CAMBIAR A TU PUERTO
+SERIAL_PORT = "COM7"      # <--- CAMBIAR A TU PUERTO
 BAUDRATE = 115200
 ser = serial.Serial(SERIAL_PORT, BAUDRATE, timeout=1)
 

@@ -60,13 +60,21 @@ const int PWM_FREQ = 20000;
 const int PWM_RES = 10;
 
 // ---------------- PID ----------------
-float Kp = 15;
-float Ki = 3.9979e-1;
-float Kd = 6.214e-2;
+//float Kp = 15;
+//float Ki = 3.9979e-1;
+//float Kd = 6.214e-2;
+
+float Kp = 7.802257e-01;
+float Ki = 3.997913;
+float Kd = 6.214532e-02;
 
 float errorPrev = 0.0;
 float integral = 0.0;
 unsigned long tPID_prev = 0;
+
+
+//PARA NUEVO PI_D
+unsigned long tPI_prev = 0;
 // -------------------------------------
 
 // --- HINF ---
@@ -123,6 +131,9 @@ void setup()
 
     Serial.begin(115200);
     delay(2000);
+
+    //Para nuevo PI_D
+    tPI_prev = millis();
 
     // --- I2C ---
     Wire.begin(SDA_PIN, SCL_PIN);
@@ -349,7 +360,7 @@ float computePID(float angle, bool reset)
     return out;
 }
 
-float computePI_D(float angle, float wz, bool reset)
+/* float computePI_D(float angle, float wz, bool reset)
 {
     if(reset){
        integral = 0; 
@@ -374,6 +385,53 @@ float computePI_D(float angle, float wz, bool reset)
 
     return out;
 }
+*/
+
+// Inicio Nuevo PI_D
+float deriv_filtered = 0.0;
+
+float computePI_D(float angle, float wz, bool reset)
+{
+    static float integral_local = 0.0;
+
+    if(reset){
+       integral_local = 0.0;
+       deriv_filtered = 0.0;
+       tPI_prev = millis();
+    }
+
+    unsigned long now = millis();
+
+    // dt robusto
+    float dt = 0.01; // valor seguro por defecto
+    if (tPI_prev != 0) {
+        float raw = (now - tPI_prev) / 1000.0;
+        if (raw > 0.0 && raw < 0.5) {
+            dt = raw;
+        }
+    }
+    tPI_prev = now;
+
+    float error = setpoint - angle;
+
+    // Integral con límite
+    integral_local += error * dt;
+    if (integral_local > 500.0) integral_local = 500.0;
+    if (integral_local < -500.0) integral_local = -500.0;
+
+    // Derivada filtrada (suaviza el gyro)
+    float alpha = 0.25;  
+    deriv_filtered = alpha * wz + (1.0 - alpha) * deriv_filtered;
+
+    // PI + D (gyro filtrado)
+    float out = Kp * error 
+              + Ki * integral_local 
+              - Kd * deriv_filtered;
+
+    return out;
+}
+
+// Fin nuevo PI_D
 
 void calibrateGyroZ(int samples = 500)
 {
