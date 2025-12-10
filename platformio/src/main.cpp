@@ -551,6 +551,11 @@ void leerComandosSerial()
                     controlMode = SMC;
                     //Serial.println("HINF");
                 }
+                else if (numero >= 600 && numero <= 700)
+                {
+                    controlMode = MRAC;
+                    //Serial.println("HINF");
+                }    
                 // --- Número fuera de todos los rangos ---
                 else
                 {
