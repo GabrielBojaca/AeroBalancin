@@ -186,7 +186,7 @@ void loop()
 
         // --- Lectura giroscopio ---
         float wz = getGyroZ(); // velocidad angular calibrada
-
+        
         mpu.getEvent(&accel, &gyro, &temp);
         if (run)
         {
@@ -245,6 +245,8 @@ void loop()
             Serial.print(setpoint);
             Serial.print("  Ang: ");
             Serial.print(angle);
+            Serial.print(" Vel: ");
+            Serial.print(wz);
             Serial.print("  PWM: ");
             Serial.print(pwm);
             Serial.print("  MODO_ACT: ");
