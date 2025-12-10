@@ -80,21 +80,54 @@ s = tf('s');
 
 % Banda objetivo: entre 3–10 Hz
 %w_bw = 2*pi*20;            
-w_bw = 2*pi*20;            
-% W1: seguimiento razonable (20–40 dB en DC), atenuando en HF
+w_bw = 2*pi*2.5;            
+%W1: seguimiento razonable (20–40 dB en DC), atenuando en HF
 %W1 = makeweight(db2mag(30), w_bw, 0.999);  % decibeles en baja frecuencia
- W1 = makeweight(db2mag(30), w_bw, 0.999);  % decibeles en baja frecuencia
+W1 = makeweight(db2mag(40), w_bw, 0.8);  % decibeles en baja frecuencia
 
 
 % W2: penaliza esfuerzo según el actuador
 %W2 = tf(1/10);     
- W2 = tf(1/10);                  
+W2 = tf(1/18);                  
 % W3: ruido de medición: no tan extremo
 %w_pert = 2*pi*50;                     % 50 Hz como antes
 %W3 = makeweight(0.99, w_pert, db2mag(20)); %  dB en alta freq 
 
-w_pert = 2*pi*50;                     % 50 Hz como antes
-W3 = makeweight(0.99, w_pert, db2mag(20)); %  dB en alta freq 
+%w_pert = 2*pi*4;                     % 50 Hz como antes
+w_pert = 2*pi*4; 
+W3 = makeweight(0.77, w_pert, db2mag(40)); %  dB en alta freq 
+%W3 = tf(0)
+
+%=== Normas H-infinito ===
+%||S||_∞  = 1.20534
+%||T||_∞  = 1.26918
+%||KS||_∞ = 10.7485
+%w_bw = 2*pi*20;    
+%W1 = makeweight(db2mag(30), w_bw, 0.999);  % decibeles en baja frecuencia 
+%W2 = tf(1/10); 
+%w_pert = 2*pi*50;                     % 50 Hz como antes
+%W3 = makeweight(0.99, w_pert, db2mag(20)); %  dB en alta freq 
+
+
+%=== Normas H-infinito ===
+%||S||_∞  = 1.20963
+%||T||_∞  = 1.25503
+%||KS||_∞ = 12.6662
+%w_bw = 2*pi*24;   
+%W2 = tf(1/12); 
+%w_pert = 2*pi*25;                     % 50 Hz como antes
+%W3 = makeweight(0.99, w_pert, db2mag(20)); %  dB en alta freq 
+
+
+%=== Normas H-infinito ===
+%||S||_∞  = 1.198
+%||T||_∞  = 1.23447
+%||KS||_∞ = 17.559
+%w_bw = 2*pi*2.5;    
+%W1 = makeweight(db2mag(40), w_bw, 0.8);
+%W2 = tf(1/18);   
+%w_pert = 2*pi*4; 
+%W3 = makeweight(0.77, w_pert, db2mag(40));
 
 %% 3) CONSTRUIR PLANTA GENERALIZADA CON augw
 % P_aug = augw(P, W1, W2, W3)
@@ -178,24 +211,22 @@ omega = logspace(-4, 4, 1000);
 [magKS, ~] = bode(KS, omega); magKS = squeeze(magKS);
 
 %% --- 6.1) Diagrama Bode de S, T y límites ---
-figure('Name','Análisis S y T (SISO)','NumberTitle','off');
+figure('Name','Análisis S y T','NumberTitle','off');
 
 semilogx(omega, 20*log10(magS), 'b', 'LineWidth', 2); hold on;
-semilogx(omega, 20*log10(magT), 'r', 'LineWidth', 2);
-
 semilogx(omega, 20*log10(magW1inv), 'b--', 'LineWidth', 1.5);
+semilogx(omega, 20*log10(magT), 'r', 'LineWidth', 2);
 semilogx(omega, 20*log10(magW3inv), 'r--', 'LineWidth', 1.5);
-
-xline(w_bw, '--g', 'LineWidth', 1.5, 'Label','_{W_{1bw}');
-xline(w_pert, '--c', 'LineWidth', 1.5, 'Label','W_{2bw} ');
-
-yline(-3,'--k','LineWidth',1.2,'Label','-3 dB');
-
+olive = [0.33 0.42 0.18];
+semilogx(omega, 20*log10(magKS), 'Color', olive, 'LineWidth', 2); hold on;
+semilogx(omega, 20*log10(magW2inv), '--', 'Color', olive, 'LineWidth', 2);
 grid on;
 xlabel('Frecuencia (rad/s)');
 ylabel('Magnitud (dB)');
-title('Sensibilidad S, T y pesos inversos (SISO)');
-legend('S','T','W_1^{-1}','W_3^{-1}','Location','Best');
+title('Sensibilidad S, T, Acción de control KS y pesos inversos');
+legend('S','W_1^{-1}','T','W_3^{-1}','KS','W_2^{-1}','Location','Best');
+ylim([-45 30])
+
 
 %% --- 6.2) Esfuerzo de control KS vs 1/W2 ---
 figure('Name','Esfuerzo de Control (SISO)','NumberTitle','off');
