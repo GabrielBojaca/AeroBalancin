@@ -391,8 +391,8 @@ float computePID(float angle, bool reset)
 }
 */
 
-// Inicio Nuevo PI_D
-float deriv_filtered = 0.0;
+// Inicio Nuevo PI_D Estable hasta 90°
+/*float deriv_filtered = 0.0;
 
 float computePI_D(float angle, float wz, bool reset)
 {
@@ -434,8 +434,76 @@ float computePI_D(float angle, float wz, bool reset)
 
     return out;
 }
-
+*/
 // Fin nuevo PI_D
+
+
+//Inicio Ultimo PID con  anti-windup
+
+float deriv_filtered = 0.0;
+
+float computePI_D(float angle, float wz, bool reset)
+{
+    static float integral_local = 0.0;
+
+    if (reset) {
+        integral_local = 0.0;
+        deriv_filtered = 0.0;
+        tPI_prev = millis();
+    }
+
+    unsigned long now = millis();
+
+    // dt robusto (valor seguro por defecto)
+    float dt = 0.01;
+    if (tPI_prev != 0) {
+        float raw = (now - tPI_prev) / 1000.0;
+        if (raw > 0.0 && raw < 0.5) dt = raw;
+    }
+    tPI_prev = now;
+
+    float error = setpoint - angle;
+
+    // Derivada filtrada (suaviza el gyro)
+    const float alpha = 0.25f;
+    deriv_filtered = alpha * wz + (1.0f - alpha) * deriv_filtered;
+
+    // P y D
+    float P = Kp * error;
+    float D = -Kd * deriv_filtered;
+
+    // ==== Anti-windup: tentative integration ====
+    const float I_MAX = 500.0f;   // <-- límite conservador; prueba 50..200 si hace falta
+    float tentativeI = integral_local + error * dt;
+    if (tentativeI > I_MAX) tentativeI = I_MAX;
+    if (tentativeI < -I_MAX) tentativeI = -I_MAX;
+
+    // Salida tentativa con la integral limitada
+    float out_noI = P + D;
+    float tentativeOut = out_noI + Ki * tentativeI;
+
+    // Límites de salida (coinciden con saturación posterior)
+    const float OUT_MAX = 1023.0f;
+    const float OUT_MIN = 0.0f;
+
+    // Actualizar integral sólo si no empeora saturación en la dirección del error
+    if (!((tentativeOut > OUT_MAX && Ki * tentativeI > 0.0f) ||
+          (tentativeOut < OUT_MIN && Ki * tentativeI < 0.0f))) {
+        integral_local = tentativeI;
+    }
+    // Si la condición falla, integral_local no se actualiza (anti-windup simple)
+
+    // Salida final
+    float out = out_noI + Ki * integral_local;
+
+    // Saturación final
+    if (out > OUT_MAX) out = OUT_MAX;
+    if (out < OUT_MIN) out = OUT_MIN;
+
+    return out;
+}
+
+//Fin Ultimo PID con  anti-windup
 
 void calibrateGyroZ(int samples = 500)
 {
